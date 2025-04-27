@@ -185,15 +185,15 @@ namespace snej::minio {
     }
 
 
-    void logger::_log(level lvl, BaseFormatString const& fmt, ArgTypeList types, ...) {
+    void logger::_log(level lvl, FormatString const& fmt, ArgTypeList types, ...) {
         va_list args;
         va_start(args, types);
         if (auto sink = sLogSink) {
-            sink(*this, lvl, vformat_types(fmt, types, args));
+            sink(*this, lvl, fmt.format_types(types, args));
         } else {
             std::unique_lock lock(sLogMutex);
             _writeHeader(lvl);
-            vformat_types_to(cerr, fmt, types, args);
+            fmt.format_types_to(cerr, types, args);
             cerr /*<< io::TTY::err().reset*/ << endl;
         }
         va_end(args);

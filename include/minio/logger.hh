@@ -50,7 +50,7 @@ namespace snej::minio {
 
         /// Logs a formatted message at the given level.
         template<Formattable... Args>
-        void log(level lvl, FormatString<Args...> const& fmt, Args &&...args) {
+        void log(level lvl, FmtFormatString<Args...> const& fmt, Args &&...args) {
             if (should_log(lvl)) [[unlikely]]
                 _log(lvl, fmt, ArgTypes<Args...>::ids, minio::i::passArg(args)...);
         }
@@ -61,37 +61,37 @@ namespace snej::minio {
         // The methods below all call `log` with the levels indicated by their names.
 
         template<Formattable... Args>
-        void trace(FormatString<Args...> const& fmt, Args &&...args) {
+        void trace(FmtFormatString<Args...> const& fmt, Args &&...args) {
             log(level::trace, fmt, std::forward<Args>(args)...);
         }
         void trace(string_view msg)                         {log(level::trace, msg);}
 
         template<Formattable... Args>
-        void debug(FormatString<Args...> const& fmt, Args &&...args) {
+        void debug(FmtFormatString<Args...> const& fmt, Args &&...args) {
             log(level::debug, fmt, std::forward<Args>(args)...);
         }
         void debug(string_view msg)                         {log(level::debug, msg);}
 
         template<Formattable... Args>
-        void info(FormatString<Args...> const& fmt, Args &&...args) {
+        void info(FmtFormatString<Args...> const& fmt, Args &&...args) {
             log(level::info, fmt, std::forward<Args>(args)...);
         }
         void info(string_view msg)                          {log(level::info, msg);}
 
         template<Formattable... Args>
-        void warn(FormatString<Args...> const& fmt, Args &&...args) {
+        void warn(FmtFormatString<Args...> const& fmt, Args &&...args) {
             log(level::warn, fmt, std::forward<Args>(args)...);
         }
         void warn(string_view msg)                          {log(level::warn, msg);}
 
         template<Formattable... Args>
-        void error(FormatString<Args...> const& fmt, Args &&...args) {
+        void error(FmtFormatString<Args...> const& fmt, Args &&...args) {
             log(level::err, fmt, std::forward<Args>(args)...);
         }
         void error(string_view msg)                         {log(level::err, msg);}
 
         template<Formattable... Args>
-        void critical(FormatString<Args...> const& fmt, Args &&...args) {
+        void critical(FmtFormatString<Args...> const& fmt, Args &&...args) {
             log(level::critical, fmt, std::forward<Args>(args)...);
         }
         void critical(string_view msg)                      {log(level::critical, msg);}
@@ -122,7 +122,7 @@ namespace snej::minio {
         static void set_output(Sink);
 
     private:
-        void _log(level, BaseFormatString const& fmt, ArgTypeList, ...);
+        void _log(level, FormatString const& fmt, ArgTypeList, ...);
         void _writeHeader(level);
         void load_env_level();
 

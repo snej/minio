@@ -19,57 +19,47 @@
 #include "minio/format.hh"
 #include "minio/ostream.hh"
 #include <charconv>
-#include <cmath>
-
-// Older versions of Apple's libc++ don't have the floating point versions of std::to_chars.
-// I used to check at runtime with:
-//      if (__builtin_available(macOS 13.3, iOS 16.3, tvOS 16.3, watchOS 9.3, *)) { ... }
-// Sadly, this doesn't work, because to_chars' availability attributes use the "strict" flag.
-// The Clang docs say:
-// > The flag strict disallows using API when deploying back to a platform version prior to
-// > when the declaration was introduced. An attempt to use such API before its introduction
-// > causes a hard error.
-#ifdef __APPLE__
-#   include <Availability.h>
-#   include <TargetConditionals.h>
-#   if (TARGET_OS_OSX && __MAC_OS_X_VERSION_MIN_REQUIRED >= 130300)
-#       define FLOAT_TO_CHARS_AVAILABLE 1
-#   elif (TARGET_OS_IPHONE && __IPHONE_OS_VERSION_MIN_REQUIRED >= 160300)
-#       define FLOAT_TO_CHARS_AVAILABLE 1
-#   else
-#       define FLOAT_TO_CHARS_AVAILABLE 0
-#   endif
-#else
-#   define FLOAT_TO_CHARS_AVAILABLE 1
-#endif
 
 namespace snej::minio {
+    using namespace std;
     using namespace i;
 
 
-    BaseFormatString::iterator::iterator(BaseFormatString const& fmt)
+#pragma mark - ITERATOR:
+
+
+    FormatString::iterator::iterator(FormatString const& fmt)
     :_str(fmt._impl._str)
     ,_pLength(&fmt._impl._lengths[0])
     ,_pSpec(&fmt._impl._specs[0])
     { }
 
 
-    string_view BaseFormatString::iterator::literal() const {
-        assert(isLiteral());
-        if (_str[0] == '{' || _str[0] == '}') [[unlikely]]
-            return {_str, 1};
-        else
-            return {_str, *_pLength};
+    bool FormatString::iterator::isLiteral() const {
+        return *_pLength >= 0;
     }
 
 
-    BaseFormatString::iterator& BaseFormatString::iterator::operator++ () {
+    string_view FormatString::iterator::literal() const {
+        if (*_pLength > 0)
+            return {_str, uint8_t(*_pLength)};
+        else if (*_pLength == 0)
+            return {_str, 1};       // This is a '{{' or '%%' escape
+        else
+            throw domain_error("not a literal");
+    }
+
+
+    FormatString::iterator& FormatString::iterator::operator++ () {
         if (!isLiteral())
             ++_pSpec;
-        _str += *_pLength;
+        _str += *_pLength ? abs(*_pLength) : 2;
         ++_pLength;
         return *this;
     }
+
+
+#pragma mark - FORMATTING:
 
 
     // non-localized ASCII-specific equivalents of ctypes:
@@ -83,9 +73,9 @@ namespace snej::minio {
 
 
     // Returns the base to format an integer in according to the Spec
-    static int baseForInt(ostream &out, BaseFormatString::Spec const& spec) {
+    static int baseForInt(ostream &out, FormatString::Spec const& spec) {
         switch (spec.type) {
-            case 'd': case 0: 
+            case 'd': case 'u': case 0:
                 return 10;
             case 'b': case 'B':
                 if (spec.alternate)
@@ -106,8 +96,8 @@ namespace snej::minio {
 
 
     // Writes a '+', ' ' or nothing, according to the spec's sign mode
-    static void writeNonNegativeSign(ostream& out, BaseFormatString::sign_t mode) {
-        using enum BaseFormatString::sign_t;
+    static void writeNonNegativeSign(ostream& out, FormatString::sign_t mode) {
+        using enum FormatString::sign_t;
         if (mode == minusPlus)
             out << '+';
         else if (mode == minusSpace)
@@ -120,7 +110,7 @@ namespace snej::minio {
     // Reads an integer from `args` and writes it to `out` according to `spec`
     template <std::integral INT>
     static void vformat_integer(ostream &out,
-                                BaseFormatString::Spec const& spec,
+                                FormatString::Spec const& spec,
                                 auto /*va_list*/ &args)
     {
         INT i = va_arg(args, INT);
@@ -147,12 +137,12 @@ namespace snej::minio {
 
     // Writes a floating-point number to `out` according to `spec`.
     static void vformat_double(ostream &out,
-                               BaseFormatString::Spec const& spec,
+                               FormatString::Spec const& spec,
                                double d)
     {
         if (d >= 0.0)
             writeNonNegativeSign(out, spec.sign);
-        bool precise = (spec.precision != BaseFormatString::kDefaultPrecision);
+        bool precise = (spec.precision != FormatString::kDefaultPrecision);
         int precision = precise ? spec.precision : 6;
         char buf[60];   // big enough for all but absurdly large precisions
 #if FLOAT_TO_CHARS_AVAILABLE
@@ -239,13 +229,13 @@ namespace snej::minio {
 
     // Writes a string to `out` according to `spec`.
     static void vformat_string(ostream &out,
-                               BaseFormatString::Spec const& spec,
+                               FormatString::Spec const& spec,
                                string_view str)
     {
         if (spec.type != 0 && spec.type != 's') [[unlikely]]
             throw format_error("invalid type for string arg");
         size_t size = str.size();
-        if (spec.precision < size && spec.precision != BaseFormatString::kDefaultPrecision)
+        if (spec.precision < size && spec.precision != FormatString::kDefaultPrecision)
             size = spec.precision;
         out.write(str.data(), size);
     }
@@ -253,53 +243,53 @@ namespace snej::minio {
 
     // Formats an argument using everything but the spec's width/alignment.
     static void vformat_arg_nowidth(ostream &out,
-                                    BaseFormatString::Spec const& spec,
-                                    i::ArgType itype,
+                                    FormatString::Spec const& spec,
+                                    ArgType itype,
                                     auto /*va_list*/ &args)
     {
         switch( itype ) {
-            case ArgType::Bool:
+            case Bool:
                 if (spec.type == 0 || spec.type == 's') [[likely]] {
                     out << (va_arg(args, int) ? "true" : "false");
                     break;
                 } else {
                     return vformat_integer<int>(out, spec, args);
                 }
-            case ArgType::Char:
+            case Char:
                 if (spec.type == 0 || spec.type == 'c') [[likely]] {
                     out << static_cast<char>(va_arg(args, int));
                     break;
                 }
                 [[fallthrough]]; // if a type is given, format as int:
-            case ArgType::Int:        return vformat_integer<int>(out, spec, args);
-            case ArgType::UInt:       return vformat_integer<unsigned int>(out, spec, args);
-            case ArgType::Long:       return vformat_integer<long>(out, spec, args);
-            case ArgType::ULong:      return vformat_integer<unsigned long>(out, spec, args);
-            case ArgType::LongLong:   return vformat_integer<long long>(out, spec, args);
-            case ArgType::ULongLong:  return vformat_integer<unsigned long long>(out, spec, args);
-            case ArgType::Double:     return vformat_double(out, spec, va_arg(args, double));
+            case Int:        return vformat_integer<int>(out, spec, args);
+            case UInt:       return vformat_integer<unsigned int>(out, spec, args);
+            case Long:       return vformat_integer<long>(out, spec, args);
+            case ULong:      return vformat_integer<unsigned long>(out, spec, args);
+            case LongLong:   return vformat_integer<long long>(out, spec, args);
+            case ULongLong:  return vformat_integer<unsigned long long>(out, spec, args);
+            case Double:     return vformat_double(out, spec, va_arg(args, double));
 
-            case ArgType::CString: {
+            case CString: {
                 const char* str = va_arg(args, const char*);
                 vformat_string(out, spec, str ? str : "");
                 break;
             }
-            case ArgType::String:
+            case String:
                 vformat_string(out, spec, *va_arg(args, const string*));
                 break;
-            case ArgType::StringView:
+            case StringView:
                 vformat_string(out, spec, *va_arg(args, const string_view*));
                 break;
 
-            case ArgType::Pointer:
+            case Pointer:
                 if (spec.type != 0 && spec.type != 'p' && spec.type != 'P') [[unlikely]]
                     throw format_error("invalid type for pointer arg");
                 out << va_arg(args, const void*);
                 break;
-            case ArgType::Arg:
+            case Arg:
                 va_arg(args, ostreamableArg).writeTo(out);
                 break;
-            case ArgType::None:
+            case None:
                 throw format_error("too few format arguments");
         }
     }
@@ -308,8 +298,8 @@ namespace snej::minio {
     // Top-level formatter for one argument.
     // Calls `vformat_arg_nowidth`, then applies width/alignment.
     static void vformat_arg(ostream &out,
-                            BaseFormatString::Spec const& spec,
-                            i::ArgType itype,
+                            FormatString::Spec const& spec,
+                            ArgType itype,
                             auto /*va_list*/ &args)
     {
         // The spec says "The width of a string is defined as the estimated number of
@@ -333,23 +323,23 @@ namespace snej::minio {
             } else {
                 // String needs padding on one or both sides:
                 auto pad = spec.width - s;
-                if (spec.align == BaseFormatString::align_t::center)
+                if (spec.align == FormatString::align_t::center)
                     pad /= 2;
-                if (spec.align != BaseFormatString::align_t::left) {
+                if (spec.align != FormatString::align_t::left) {
                     out << string(pad, spec.fill);
                     pad = spec.width - s - pad; // for centering
                 }
                 out << str;
-                if (spec.align != BaseFormatString::align_t::right)
+                if (spec.align != FormatString::align_t::right)
                     out << string(pad, spec.fill);
             }
         }
     }
 
 
-    void vformat_types_to(ostream& out, BaseFormatString const& fmt, ArgTypeList types, va_list args) {
+    void FormatString::vformat_types_to(ostream& out, ArgTypeList types, va_list args) const {
         auto itype = types;
-        for (auto i = fmt.begin(); i != fmt.end(); ++i) {
+        for (auto i = begin(); i != end(); ++i) {
             if (i.isLiteral())
                 out << i.literal();
             else
@@ -357,33 +347,33 @@ namespace snej::minio {
         }
         // If there are more args than specifiers, write the rest as a comma-separated list:
         const char* delim = " : ";
-        while (*itype != ArgType::None) {
+        while (*itype != None) {
             out << delim;
             delim = ", ";
-            vformat_arg(out, BaseFormatString::Spec{}, *itype++, args);
+            vformat_arg(out, FormatString::Spec{}, *itype++, args);
         }
     }
 
 
-    string vformat_types(BaseFormatString const& fmt, ArgTypeList types, va_list args) {
+    string FormatString::vformat_types(ArgTypeList types, va_list args) const {
         ostringstream out;
-        vformat_types_to(out, fmt, types, args);
+        vformat_types_to(out, types, args);
         return std::move(out).str();
     }
 
 
-    void format_types_to(ostream& out, BaseFormatString const& fmt, ArgTypeList types, ...) {
+    void FormatString::format_types_to(ostream& out, ArgTypeList types, ...) const {
         va_list args;
         va_start(args, types);
-        vformat_types_to(out, fmt, types, args);
+        vformat_types_to(out, types, args);
         va_end(args);
     }
 
 
-    string format_types(BaseFormatString const& fmt, ArgTypeList types, ...) {
+    string FormatString::format_types(ArgTypeList types, ...) const {
         va_list args;
         va_start(args, types);
-        string result = vformat_types(fmt, types, args);
+        string result = vformat_types(types, args);
         va_end(args);
         return result;
     }
