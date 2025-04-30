@@ -28,9 +28,6 @@
 ASSUME_NONNULL_BEGIN
 
 namespace snej::minio {
-    using string = std::string;
-    using string_view = std::string_view;
-
 #ifdef _WIN32
     constexpr const char* endl = "\r\n";
 #else

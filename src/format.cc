@@ -21,7 +21,6 @@
 #include <charconv>
 
 namespace snej::minio {
-    using namespace std;
     using namespace i;
 
 
@@ -46,7 +45,7 @@ namespace snej::minio {
         else if (*_pLength == 0)
             return {_str, 1};       // This is a '{{' or '%%' escape
         else
-            throw domain_error("not a literal");
+            throw std::domain_error("not a literal");
     }
 
 
