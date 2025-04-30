@@ -67,7 +67,7 @@ add_library(minio STATIC
         src/string_utils.cc
 )
 
-target_include_directories(minio PUBLIC
+target_include_directories(minio PRIVATE
     include
 )
 
@@ -89,6 +89,27 @@ target_sources(minio PUBLIC FILE_SET HEADERS
 )
 
 install(TARGETS minio
+    EXPORT minio_targets
     FILE_SET HEADERS
     ARCHIVE
 )
+
+## The below is boilerplate I copied from
+## https://github.com/microsoft/vcpkg-docs/blob/cmake-sample-lib/CMakeLists.txt
+
+# Generate and install *-targets.cmake
+install(EXPORT minio_targets
+        FILE minio-targets.cmake
+        NAMESPACE minio::
+        DESTINATION share/minio)
+
+# Generate the config file in the current binary dir (this ensures it's not placed directly in source)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/minio-config.cmake"
+        "include(CMakeFindDependencyMacro)\n"
+        "find_dependency(blake3 CONFIG REQUIRED)\n"
+        "include(\"\${CMAKE_CURRENT_LIST_DIR}/minio-targets.cmake\")\n"
+)
+
+# Install the generated config file
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/minio-config.cmake"
+        DESTINATION share/minio)
