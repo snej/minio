@@ -67,8 +67,9 @@ add_library(minio STATIC
         src/string_utils.cc
 )
 
-target_include_directories(minio PRIVATE
-    include
+target_include_directories(minio INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>  # <prefix>/include
 )
 
 
