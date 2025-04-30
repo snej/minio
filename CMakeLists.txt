@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.23)
 
 # MacOS deployment target must be set before the `project` call
 if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
@@ -69,4 +69,26 @@ add_library(minio STATIC
 
 target_include_directories(minio PUBLIC
     include
+)
+
+
+# INSTALLATION:
+
+target_sources(minio PUBLIC FILE_SET HEADERS
+    BASE_DIRS include
+    FILES
+    include/minio/base.hh
+    include/minio/format.hh
+    include/minio/format_impl.hh
+    include/minio/istream.hh
+    include/minio/logger.hh
+    include/minio/ostream.hh
+    include/minio/streamfwd.hh
+    include/minio/string_utils.hh
+    include/minio/varint.hh
+)
+
+install(TARGETS minio
+    FILE_SET HEADERS
+    ARCHIVE
 )
